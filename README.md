@@ -5,7 +5,8 @@ Scripts and notebooks to run and analyse the Bayesian computational routine to t
 ## Set up
 Included in this repository is the ```environment.yml``` file, that contains all the necessary packages that need to be installed in a conda environment in order to run our code. To setup the environment run:
 
-    conda env create --file environment.yml
+    conda env create --name robin --file environment.yml
+    conda activate robin
 
 ## Contents
 In addition to the environment file, this repository contains 2 python files and a notebook.
