@@ -1,11 +1,11 @@
 # Bayesian approach to inverse Robin problems
 
-Scripts and notebooks to run and analyse the Bayesian computational routine for the inverse problems of estimating a Robin coefficient on the domain boundary, for the Laplace problem and Stokes problem described in \link to arXiv
+Scripts and notebooks to run and analyse the Bayesian computational routine to tackle the inverse problems of estimating a Robin boundary coefficient in Laplace Stokes PDE problems. Based on work by Mark Girolami, Ieva Kazlauskaite, Alsel K. Rasmussen and Fanny Seizilles (\link tbc).
 
-You can cite it via
-```
-ref
-```
+%You can cite it via
+%```
+%ref
+%```
 
 
 ## Set up
