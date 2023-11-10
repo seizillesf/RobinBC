@@ -3,7 +3,7 @@
 Scripts and notebooks to run and analyse the Bayesian computational routine to tackle the inverse problems of estimating a Robin boundary coefficient in Laplace Stokes PDE problems. Based on work by Mark Girolami, Ieva Kazlauskaite, Alsel K. Rasmussen and Fanny Seizilles.
 
 ## Set up
-Included in this repository is the ```environment.yml``` file, that contains all the necessary packages that need to be installed in a conda environment in order to run our code. To setup the environment run:
+Included in this repository is the ```environment.yml``` file, that contains all the necessary packages that need to be installed in a conda environment in order to run our code (exported from MacOS). To setup the environment run:
 
     conda env create --name robin --file environment.yml
     conda activate robin
