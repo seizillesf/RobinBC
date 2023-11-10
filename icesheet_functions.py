@@ -1,25 +1,23 @@
 #!/usr/bin/env python
 # coding: utf-8
 
+# This script contains all functions necessary to run the experiments (PDE solver via FenicsX for FEM, MCMC)
 
 
-# ## Preliminary
+# PRELIMINARY
 
 # Dimension of parameters space
-K=5 #
+K=5 
 
 # Parameters for the physical model
-
-domain_length=5 #ratio X/Y
-rho = 1 # constant ice density
-gx, gy = 5, 5 # gravity component
+domain_length=5 #ratio X/Y for the domain
+rho = 1 # constant ice density for the Stokes model
+gx, gy = 5, 5 # gravity component for the Stokes model
 
 
 #-----------------------------------CONSTRUCTION OF THE BASAL DRAG FUNCTION----------------------------------------------------- 
 
 import numpy as np
-import matplotlib
-import matplotlib.pyplot as plt
 
 
 
@@ -35,7 +33,7 @@ def build_beta(coeffs):
     beta -- one-dimensional function representing the basal drag factor
     """ 
     functions = [1]+[np.cos,np.sin]*(K//2) # 
-    wavenumbers = [0]+[1+k//2 for k in range(K-1)] # wavenumbers inside the sinus function[0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7]
+    wavenumbers = [0]+[1+k//2 for k in range(K-1)] # wavenumbers inside the (co)sinus function[0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5,...]
     beta = lambda x: np.exp((coeffs[0] + sum([coeffs[k]*functions[k](wavenumbers[k]*2*np.pi*x[0]) for k in range(1,K)])))
     
     return beta
@@ -43,11 +41,9 @@ def build_beta(coeffs):
 
 
 
-
-
 # ## ----------------------------------------PDE - Forward map----------------------------------------------------
 
-# We define here the elements necessary to the building of the forward map, which maps the coefficients $\theta$ (array of size K) to the velocity, evaluated at N points drawn uniformly on the surface. We parameterise the forward map by the mesh size.
+# We define here the elements necessary to the building of the forward map, which maps the coefficients $\theta$ (array of size K) to the velocity, evaluated at N points drawn uniformly on the surface.
 
 
 # NECESSARY IMPORTS
@@ -105,7 +101,9 @@ def create_mesh_and_tags(size_msh,domain_length=5):
     #Create the subdomains and space for Robin boundary condition in this problem
     tol = 1E-14 # tolerance (we cannot use strict equalities)
     boundaries = [(1, lambda x: abs(x[1])<= tol),   # Robin BC, at the bottom
-                  (2, lambda x: abs(x[1]-1/domain_length)<= tol)]   # Neumann BC, at  the surface
+                  (2, lambda x: abs(x[1]-1/domain_length)<= tol), # Neumann BC, at  the surface
+                  (3, lambda x: abs(x[0])<= tol),   # Dirichlet BC, on the left
+                  (4, lambda x: abs(x[0]-1)<= tol)]  # Dirichlet BC, on the right
 
 
     # Loop through all the boundary conditions and create MeshTags identifying the facets for each boundary condition
@@ -186,9 +184,6 @@ def define_weak_form_laplace(theta, msh, facet_tag, V):
     # Define the source terms (based on tunable parameters at the top)
     f = Constant(msh, PETSc.ScalarType(0))
 
-    tau_fct = lambda x: 10*(np.sin(12*np.pi*x[0])+1)
-    tau = Function(V)
-    tau.interpolate(tau_fct)
 
     # Define the bilinear form
     bilinear = inner(grad(u), grad(v)) * dx
@@ -199,6 +194,9 @@ def define_weak_form_laplace(theta, msh, facet_tag, V):
     #-----------------SET THE BOUNDARY CONDITIONS FOR THE PROBLEM----------------------------------------------
 
     # Set the values for Neumann BC
+    tau_fct = lambda x: 10*(np.sin(12*np.pi*x[0])+1)
+    tau = Function(V)
+    tau.interpolate(tau_fct)
     values_boundary_neumann = tau 
 
     # Set the values for Robin BC
@@ -208,10 +206,19 @@ def define_weak_form_laplace(theta, msh, facet_tag, V):
     r.interpolate(beta)
     s = Constant(msh, PETSc.ScalarType(0))
     values_boundary_robin = (r,s)
+    
+    # Set the values for Dirichlet BC
+    dirichlet_fct = lambda x: 0*x[0]
+    values_boundary_dirichlet = Function(V)
+    values_boundary_dirichlet.interpolate(dirichlet_fct)
+    
 
     # Gather the Boundary conditions
     boundary_conditions = [BoundaryCondition("Robin", 1, values_boundary_robin),
-                        BoundaryCondition("Neumann", 2, values_boundary_neumann)]
+                            BoundaryCondition("Neumann", 2, values_boundary_neumann),
+                            BoundaryCondition("Dirichlet", 3, values_boundary_dirichlet),
+                            BoundaryCondition("Dirichlet", 4, values_boundary_dirichlet)]
+
 
     bcs = []
     for condition in boundary_conditions:
@@ -295,9 +302,6 @@ def define_weak_form_stokes(theta, msh, facet_tag, W, V, Q):
     version = "sum"
 
 
-
-
-
     # We now define the bilinear and linear forms corresponding to the weak
     # mixed formulation of the Stokes equations in a blocked structure:
 
@@ -309,13 +313,11 @@ def define_weak_form_stokes(theta, msh, facet_tag, W, V, Q):
     f = Constant(msh, (PETSc.ScalarType(rho*gx), PETSc.ScalarType(rho*gy)))
 
 
-    
     # Define the bilinear form
     bilinear = inner(grad(u), grad(v)) * dx - inner(p, div(v)) * dx + inner(div(u), q) * dx
 
     # Define the linear form
     L = inner(f, v) * dx + inner(Constant(msh, PETSc.ScalarType(0)), q) * dx
-
 
 
     #-----------------SET THE BOUNDARY CONDITIONS FOR THE PROBLEM----------------------------------------------
@@ -443,7 +445,7 @@ def solve_stokes(theta, msh, facet_tag):
 
     
     #-----------------GET THE WEAK FORM----------------------------------------------
-    a,L, bcs = define_weak_form_stokes(theta, msh,facet_tag, V)
+    a,L, bcs = define_weak_form_stokes(theta, msh,facet_tag, W, V, Q)
      
     
     #-----------------------------ASSEMBLE AND SOLVE-----------------------------------------------
@@ -622,9 +624,112 @@ def metropolis_step(current_loglikelihood, proposal_loglikelihood, accept_reject
 
 
 
+### MCMC routine - Putting together auxiliary functions
+
+
+def run_mcmc_pcn(problem, N, gamma, n_iter, reg, size_msh, theta_0, observations, covariates, scale_noise):
+    """
+    Runs the MCMC algorithm with simple pCN scheme. Saves at every iteration all the 
+    parameters/results of the experiment in a .pkl file as a dictionary.
+    
+    Keyword arguments:
+    problem -- {'Laplace' or 'Stokes"}
+    N -- int, number of covariates
+    gamma -- float, step size
+    n_iter -- int, number of iterations
+    reg -- dictionary, with keys 'reg_type'={'matern' or 'squared_exp'} and 'reg_parameter' (float). Describes the priors used
+    size_msh -- int, describes mesh size for the PDE solver
+    theta_0 -- float list (size K), true theta coefficients
+    observations -- float list (size N), noisy surface observations, based on PDE output for ground truth parameters
+    covariates -- float list (size N), coordinates of points at the surface where observations are made
+    scale_noise -- float, noise scale
+    """
+    
+    # Create 'experiment' dictionary to keep track of runs and parameters
+    experiment = {}
+    experiment['problem'] = problem
+    experiment['N'] = N
+    experiment['gamma'] = gamma
+    experiment['reg_type'] = reg['reg_type']
+    experiment['size_mesh'] = size_msh
+    experiment['theta_0'] = theta_0
+    experiment['observations'] = observations
+    experiment['covariates'] = covariates
+    experiment['scale_noise'] = scale_noise
+    
+    # Create the filename in which to load the dictionary
+    filename = f"experiment_PCN_{problem}_{reg['reg_type']}_{N}_{gamma}_{scale_noise}"
+    
+    
+    # INITIALISATION
+    theta = theta_0 + np.random.normal(loc=0.0, scale=0.1, size=K) #initialise close to true value
+
+    # Compute the model and likelihood of this proposal on coarse mesh
+    model_values = forward_map(problem, theta, size_msh, covariates)
+    current_loglikelihood = compute_loglikelihood(model_values, observations, scale_noise)
+    
+    # Useful tables to store values
+    chain = np.array([np.array(theta)])    
+    likelihoods = np.array([current_loglikelihood])
+    accept_reject = np.array([True])
+
+
+    #--------------------ITERATE--------------------------------------------------
+    for iter in range(n_iter): 
+    
+        
+        # Get the proposal for new value
+        proposal = compute_proposal_pcn(theta, gamma, reg)
+
+        # Compute the model and likelihood of this proposal
+        model_values = forward_map(problem, proposal, size_msh, covariates)
+        proposal_loglikelihood = compute_loglikelihood(model_values, observations, scale_noise)
+
+        # Metropolis step
+        accept = metropolis_step(current_loglikelihood, proposal_loglikelihood, accept_reject)
+        
+        # Update the coarse tables
+        if accept:
+            accept_reject = np.append(accept_reject,[True])
+            theta = proposal.copy()
+            current_loglikelihood = proposal_loglikelihood
+
+        else:
+            accept_reject = np.append(accept_reject,[False])
+
+        chain = np.append(chain, np.array([theta]),axis=0)
+        likelihoods = np.append(likelihoods, [current_loglikelihood])
+    
+        
+        # Save runs in dictionary
+        experiment['chain'] = np.array(chain)
+        experiment['likelihood'] = np.array(likelihoods)
+        experiment['acceptance'] = np.array(accept_reject)
+
+        with open(f'{filename}.pkl', 'wb') as fp:
+            pickle.dump(experiment, fp)
+
+
 
 
 def run_mcmc_lda(problem, N, gamma, n_iter, reg, size_msh_fine, size_msh_coarse,theta_0,observations, covariates, scale_noise):
+    """
+    Runs the MCMC algorithm with multilevel approach (using a coarse solver as approximation before 
+    making proposals for the high-level chain). Saves at every iteration all the parameters/results of the experiment in a .pkl file as a dictionary.
+    
+    Keyword arguments:
+    problem -- {'Laplace' or 'Stokes"}
+    N -- int, number of covariates
+    gamma -- float, step size
+    n_iter -- int. We run the algorithm until the high level chains has n_iter accepted proposals.
+    reg -- dictionary, with keys 'reg_type'={'matern' or 'squared_exp'} and 'reg_parameter' (float). Describes the priors used
+    size_msh_fine -- int, describes mesh size for the PDE solver used for the high-level/fine chain
+    size_msh_coarse -- int, describes mesh size for the PDE solver used for the approximation/coarse chain
+    theta_0 -- float list (size K), true theta coefficients
+    observations -- float list (size N), noisy surface observations, based on PDE output for ground truth parameters
+    covariates -- float list (size N), coordinates of points at the surface where observations are made
+    scale_noise -- float, noise scale
+    """
     
     # Create 'experiment' dictionary to keep track of runs and parameters
     experiment = {}
@@ -646,15 +751,15 @@ def run_mcmc_lda(problem, N, gamma, n_iter, reg, size_msh_fine, size_msh_coarse,
     counter = 0
 
     # INITIALISATION
-    theta = theta_0 + np.random.normal(loc=0.0, scale=0.1, size=K) #initialise close to true value
+    theta = theta_0 + np.random.normal(loc=0.0, scale=0.5, size=K) #initialise close to true value
 
     # Compute the model and likelihood of this proposal on coarse mesh
-    model_values_coarse = forward_map(theta, size_msh = size_msh_coarse)
-    current_loglikelihood_coarse = compute_loglikelihood(model_values_coarse, observations)
+    model_values_coarse = forward_map(problem, theta, size_msh = size_msh_coarse, covariates=covariates)
+    current_loglikelihood_coarse = compute_loglikelihood(model_values_coarse, observations, scale_noise)
     
     # Compute the model and likelihood of this proposal on fine mesh
-    model_values_fine = forward_map(theta, size_msh = size_msh_fine)
-    current_loglikelihood_fine = compute_loglikelihood(model_values_fine, observations)
+    model_values_fine = forward_map(problem, theta, size_msh = size_msh_fine, covariates=covariates)
+    current_loglikelihood_fine = compute_loglikelihood(model_values_fine, observations, scale_noise)
 
     
     # Useful tables to store values
@@ -746,7 +851,23 @@ def run_mcmc_lda(problem, N, gamma, n_iter, reg, size_msh_fine, size_msh_coarse,
 
 
 
-def run_mcmc_pcn(problem, N, gamma, n_iter, reg, size_msh, theta_0, observations, covariates, scale_noise):
+def run_mcmc_adaptive(problem, N, gamma, n_iter, reg, size_msh, theta_0, observations, covariates, scale_noise):
+    """
+    Runs the MCMC algorithm with adaptive step size approach. Saves at every iteration all the 
+    parameters/results of the experiment in a .pkl file as a dictionary.
+    
+    Keyword arguments:
+    problem -- {'Laplace' or 'Stokes"}
+    N -- int, number of covariates
+    gamma -- float, step size
+    n_iter -- int, number of iterations
+    reg -- dictionary, with keys 'reg_type'={'matern' or 'squared_exp'} and 'reg_parameter' (float). Describes the priors used
+    size_msh -- int, describes mesh size for the PDE solver
+    theta_0 -- float list (size K), true theta coefficients
+    observations -- float list (size N), noisy surface observations, based on PDE output for ground truth parameters
+    covariates -- float list (size N), coordinates of points at the surface where observations are made
+    scale_noise -- float, noise scale
+    """
     
     # Create 'experiment' dictionary to keep track of runs and parameters
     experiment = {}
@@ -759,9 +880,10 @@ def run_mcmc_pcn(problem, N, gamma, n_iter, reg, size_msh, theta_0, observations
     experiment['observations'] = observations
     experiment['covariates'] = covariates
     experiment['scale_noise'] = scale_noise
+
     
     # Create the filename in which to load the dictionary
-    filename = f"experiment_PCN_{problem}_{reg['reg_type']}_{N}_{gamma}_{scale_noise}"
+    filename = f"experiment_adaptive_{problem}_{reg['reg_type']}_{N}_{gamma}_{scale_noise}"
     
     
     # INITIALISATION
@@ -775,11 +897,31 @@ def run_mcmc_pcn(problem, N, gamma, n_iter, reg, size_msh, theta_0, observations
     chain = np.array([np.array(theta)])    
     likelihoods = np.array([current_loglikelihood])
     accept_reject = np.array([True])
+    
+    
+    # Parameters for adaptive learning rate
+    n_update = 1000 #  frequency of step size update
+    target_acceptance = 0.3 # target acceptance ratio
+    list_gammas = [gamma]
+    experiment['gammas'] = list_gammas
+    
 
 
     #--------------------ITERATE--------------------------------------------------
     for iter in range(n_iter): 
-    
+        
+        if iter % n_update ==0 and iter>0: # every n_update iteration update the learning rate
+            
+            old_gamma = gamma # save previous gamma value
+            current_acceptance = np.mean(accept_reject[iter-n_update:iter])   # evaluate average acceptance rate
+            
+            zeta = 1/np.sqrt(np.floor(iter/n_update)+1)   
+            gamma = np.exp(np.log(gamma) + zeta*(current_acceptance-target_acceptance))
+            
+            gamma = min(gamma, 1)  # update parameters
+            list_gammas.append(gamma)
+            experiment['gammas'] = list_gammas
+        
         
         # Get the proposal for new value
         proposal = compute_proposal_pcn(theta, gamma, reg)
@@ -811,7 +953,165 @@ def run_mcmc_pcn(problem, N, gamma, n_iter, reg, size_msh, theta_0, observations
 
         with open(f'{filename}.pkl', 'wb') as fp:
             pickle.dump(experiment, fp)
-
         
                                        
+
+
+def run_mcmc_combined(problem, N, gamma, n_iter, reg, size_msh_fine, size_msh_coarse,theta_0,observations, covariates, scale_noise):
+    """
+    Runs the MCMC algorithm with the approach combining multilevel Monte-Carlo and adaptive step size. 
+    Saves at every iteration all the parameters/results of the experiment in a .pkl file as a dictionary.
+    
+    Keyword arguments:
+    problem -- {'Laplace' or 'Stokes"}
+    N -- int, number of covariates
+    gamma -- float, step size
+    n_iter -- int. We run the algorithm until the high level chains has n_iter accepted proposals.
+    reg -- dictionary, with keys 'reg_type'={'matern' or 'squared_exp'} and 'reg_parameter' (float). Describes the priors used
+    size_msh_fine -- int, describes mesh size for the PDE solver used for the high-level/fine chain
+    size_msh_coarse -- int, describes mesh size for the PDE solver used for the approximation/coarse chain
+    theta_0 -- float list (size K), true theta coefficients
+    observations -- float list (size N), noisy surface observations, based on PDE output for ground truth parameters
+    covariates -- float list (size N), coordinates of points at the surface where observations are made
+    scale_noise -- float, noise scale
+    """
+    
+    # Create 'experiment' dictionary to keep track of runs and parameters
+    experiment = {}
+    experiment['problem'] = problem
+    experiment['N'] = N
+    experiment['gamma'] = gamma
+    experiment['reg_type'] = reg['reg_type']
+    experiment['size_mesh_fine'] = size_msh_fine
+    experiment['size_mesh_coarse'] = size_msh_coarse
+    experiment['theta_0'] = theta_0
+    experiment['observations'] = observations
+    experiment['covariates'] = covariates
+    experiment['scale_noise'] = scale_noise
+    
+    # Create the filename in which to load the dictionary
+    filename = f"experiment_combined_{problem}_{reg['reg_type']}_{N}_{gamma}_{scale_noise}"
+    
+    
+    counter = 0
+
+    # INITIALISATION
+    theta = theta_0 + np.random.normal(loc=0.0, scale=0.5, size=K) #initialise close to true value
+
+    # Compute the model and likelihood of this proposal on coarse mesh
+    model_values_coarse = forward_map(problem, theta, size_msh = size_msh_coarse, covariates=covariates)
+    current_loglikelihood_coarse = compute_loglikelihood(model_values_coarse, observations, scale_noise)
+    
+    # Compute the model and likelihood of this proposal on fine mesh
+    model_values_fine = forward_map(problem, theta, size_msh = size_msh_fine, covariates=covariates)
+    current_loglikelihood_fine = compute_loglikelihood(model_values_fine, observations, scale_noise)
+
+    
+    # Useful tables to store values
+    chain_coarse = np.array([np.array(theta)])
+    chain_fine = np.array([np.array(theta)])
+    
+    
+    likelihood_coarse = np.array([current_loglikelihood_coarse])
+    likelihood_fine = np.array([current_loglikelihood_fine])
+    
+    accept_reject_coarse = np.array([True])
+    accept_reject_fine = np.array([True])
+    
+    
+    
+    # Parameters for adaptive learning rate
+    n_update = 1000 #  frequency of step size update
+    target_acceptance = 0.3 # target acceptance ratio
+    list_gammas = [gamma]
+    experiment['gammas'] = list_gammas
+
+
+    #--------------------ITERATE--------------------------------------------------
+    while counter < n_iter: # effective sample size of 20000, we stop when finer chain has achieved n_iter accepted
+    
+        iter = len(chain_coarse) # nb of base iterations/iterations of the coarse chain
+        if iter % n_update ==0 and iter>0: # every n_update iteration update the learning rate
+            
+            old_gamma = gamma # save previous gamma value
+            current_acceptance = np.mean(accept_reject_coarse[iter-n_update:iter])   # evaluate average acceptance rate
+            
+            zeta = 1/np.sqrt(np.floor(iter/n_update)+1)   # ensures that the variation of list_gammas(i) vanishes
+            gamma = np.exp(np.log(gamma) + zeta*(current_acceptance-target_acceptance))
+            
+            gamma = min(gamma, 1)  # update parameters
+            list_gammas.append(gamma)
+            experiment['gammas'] = list_gammas
+            
+        #-----------------------RUN ON COARSE CHAIN FIRST----------------------------------------
+
+        # Get the proposal for new value
+        proposal = compute_proposal_pcn(theta, gamma, reg)
+
+        # Compute the model and likelihood of this proposal
+        model_values = forward_map(problem, proposal, size_msh = size_msh_coarse, covariates=covariates)
+        proposal_loglikelihood = compute_loglikelihood(model_values, observations,scale_noise)
+
+        # Metropolis step
+        accept = metropolis_step(current_loglikelihood_coarse, proposal_loglikelihood, accept_reject_coarse)
+        
+        # Update the coarse tables
+        if accept:
+            accept_reject_coarse = np.append(accept_reject_coarse,[True])
+            theta = proposal.copy()
+            current_loglikelihood_coarse = proposal_loglikelihood
+
+        else:
+            accept_reject_coarse = np.append(accept_reject_coarse,[False])
+
+        chain_coarse = np.append(chain_coarse, np.array([theta]),axis=0)
+        likelihood_coarse = np.append(likelihood_coarse, [current_loglikelihood_coarse])
+    
+        
+        # Save runs in dictionary
+        experiment['coarse_chain'] = np.array(chain_coarse)
+        experiment['coarse_likelihood'] = np.array(likelihood_coarse)
+        experiment['coarse_acceptance'] = np.array(accept_reject_coarse)
+        with open(f'{filename}.pkl', 'wb') as fp:
+            pickle.dump(experiment, fp) 
+
+        print("Nb of coarse runs:", len(likelihood_coarse))
+        
+        #-----------------RUN ON FINER CHAIN IF ACCEPTED ON COARSE---------------------------
+        
+        if accept:
+            
+            # Use the proposal to compute likelihood on finer mesh
+            model_values = forward_map(problem, proposal, size_msh = size_msh_fine, covariates=covariates)
+            proposal_loglikelihood = compute_loglikelihood(model_values, observations, scale_noise)
+            
+            # Metropolis step
+            accept = metropolis_step(current_loglikelihood_fine, proposal_loglikelihood, accept_reject_fine)
+
+            if accept:
+                counter+=1
+                print(counter, np.sum(accept_reject_coarse))
+                current_loglikelihood_fine = proposal_loglikelihood
+                
+                accept_reject_fine = np.append(accept_reject_fine,[True])
+                chain_fine = np.append(chain_fine, np.array([proposal]),axis=0)
+                #likelihood_fine = np.append(likelihood_fine, [current_loglikelihood_fine])            
+
+            else:
+                accept_reject_fine = np.append(accept_reject_fine,[False])
+                chain_fine = np.append(chain_fine, np.array([chain_fine[-1,:]]),axis=0)
+                   
+                    
+            likelihood_fine = np.append(likelihood_fine, [current_loglikelihood_fine])         
+            
+            # Save runs in dictionary
+            experiment['fine_chain'] = np.array(chain_fine)
+            experiment['fine_likelihood'] = np.array(likelihood_fine)
+            experiment['fine_acceptance'] = np.array(accept_reject_fine)
+            with open(f'{filename}.pkl', 'wb') as fp:
+                pickle.dump(experiment, fp)
+            
+            
+            print("Nb of fine runs:",len(likelihood_fine))
+                                                 
 
