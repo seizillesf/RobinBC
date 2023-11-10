@@ -1,12 +1,6 @@
 # Bayesian approach to inverse Robin problems
 
-Scripts and notebooks to run and analyse the Bayesian computational routine to tackle the inverse problems of estimating a Robin boundary coefficient in Laplace Stokes PDE problems. Based on work by Mark Girolami, Ieva Kazlauskaite, Alsel K. Rasmussen and Fanny Seizilles (\link tbc).
-
-%You can cite it via
-%```
-%ref
-%```
-
+Scripts and notebooks to run and analyse the Bayesian computational routine to tackle the inverse problems of estimating a Robin boundary coefficient in Laplace Stokes PDE problems. Based on work by Mark Girolami, Ieva Kazlauskaite, Alsel K. Rasmussen and Fanny Seizilles.
 
 ## Set up
 Included in this repository is the ```environment.yml``` file, that contains all the necessary packages that need to be installed in a conda environment in order to run our code. To setup the environment run:
