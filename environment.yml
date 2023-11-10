@@ -1,0 +1,13 @@
+name: pymc_env
+channels:
+  - defaults
+dependencies:
+  - pymc[version='>=4']
+  - python=3.10
+  - fenics-dolfinx
+  - ipykernel
+  - notebook
+  - nbconvert==5.4.1
+  - pyvista
+  - seaborn
+prefix: /Users/fannyseizilles/opt/anaconda3/envs/pymc_env
