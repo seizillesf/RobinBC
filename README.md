@@ -14,7 +14,7 @@ Included in this repository is the ```environment.yml``` file, that contains all
     conda env create --file environment.yml
 
 ## Contents
-In addition to the environment file, this repository contains 2 python file and a notebook
+In addition to the environment file, this repository contains 2 python files and a notebook.
 
 - With the python file ```icesheet_functions.py```, all functions necessary to run the experiments are defined (PDE solver via ```FenicsX``` for FEM, MCMC)
 - With the python file ```run.py```, we set the parameters of the experiment (prior type, number of observations...) and run it. For every experiment, a dictionary is created and stored in a ```.pkl``` file
